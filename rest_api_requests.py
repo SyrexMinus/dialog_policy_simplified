@@ -14,7 +14,7 @@ json = response.json()
 print("Response:", json)
 
 print(f"DELETE pk 12")
-response = requests.delete(URL+"12")
+response = requests.delete(URL + "12")
 json = response.json()
 print("Response:", json)
 
