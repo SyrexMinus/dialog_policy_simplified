@@ -1,11 +1,11 @@
 from confluent_kafka import Producer
-from config import producer_kafka_conf
+from config import conf_producer_kafka
 
 
 class ProducerKafkaWrapper:
 
     def __init__(self):
-        self.producer = Producer(producer_kafka_conf)
+        self.producer = Producer(conf_producer_kafka)
 
     def produce(self, topic, key, value):
         self.producer.produce(topic=topic, key=key, value=value, callback=self._acked)

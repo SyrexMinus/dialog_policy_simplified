@@ -1,4 +1,6 @@
 import socket
 
-producer_kafka_conf = {'bootstrap.servers': "localhost:9092",
-                       'client.id': socket.gethostname()}
+kafka_bootstrap_servers = "localhost:9092"
+
+conf_producer_kafka = {"bootstrap.servers": kafka_bootstrap_servers,
+                       "client.id": socket.gethostname()}
