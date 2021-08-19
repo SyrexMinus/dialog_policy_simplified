@@ -1,12 +1,12 @@
 import sys
 
 from confluent_kafka import Consumer
-from utils.project_constants import conf_consumer_kafka_default
+from utils.project_constants import CONF_CONSUMER_KAFKA_DEFAULT
 from confluent_kafka import KafkaError, KafkaException
 
 
 class ConsumerKafkaWrapper:
-    def __init__(self, conf=conf_consumer_kafka_default):
+    def __init__(self, conf=CONF_CONSUMER_KAFKA_DEFAULT):
         self.consumer = Consumer(conf)
         self.running = False
 
