@@ -8,25 +8,22 @@ from confluent_kafka import KafkaError, KafkaException
 
 class ConsumerKafkaWrapper:
     def __init__(self, conf=CONF_CONSUMER_KAFKA_DEFAULT):
-        self.consumer = Consumer(conf)
-        self.running = False
+        self._consumer = Consumer(config=conf)
+        self._running = False
 
-    def start_loop(self, topics, process_message_func, loop=None):
-        self.running = True
-        if loop:
-            loop(topics, process_message_func)
-        else:
-            self._basic_consume_loop(topics, process_message_func)
+    def start_loop(self, topics, process_message_func):
+        self._running = True
+        self._basic_consume_loop(topics=topics, process_message_func=process_message_func)
 
     def shutdown(self):
-        self.running = False
+        self._running = False
 
     def _basic_consume_loop(self, topics, process_message_func):
         try:
-            self.consumer.subscribe(topics)
+            self._consumer.subscribe(topics)
 
-            while self.running:
-                msg = self.consumer.poll(timeout=1.0)
+            while self._running:
+                msg = self._consumer.poll(timeout=1.0)
                 if msg is None:
                     continue
 
@@ -41,15 +38,21 @@ class ConsumerKafkaWrapper:
                     process_message_func(msg.value().decode('UTF-8'))
         finally:
             # Close down consumer to commit final offsets.
-            self.consumer.close()
+            self._consumer.close()
 
-    def custom_consume_loop(self, topics, return_expression, timeout=1):
+    def get_message(self, topics, return_expression, timeout=1):
+        self._running = True
+        return self._get_message_consume_loop(topics=topics, return_expression=return_expression, timeout=timeout)
+
+    def _get_message_consume_loop(self, topics, return_expression, timeout):
+        start = time.time()
+        return_message = None
+
         try:
-            self.consumer.subscribe(topics)
+            self._consumer.subscribe(topics)
 
-            start = time.time()
-            while self.running:
-                msg = self.consumer.poll(timeout=1)
+            while self._running:
+                msg = self._consumer.poll(timeout=1)
                 if msg is None:
                     continue
 
@@ -62,10 +65,12 @@ class ConsumerKafkaWrapper:
                         raise KafkaException(msg.error())
                 else:
                     if return_expression(msg):
-                        return msg
+                        return_message = msg
+                        self.shutdown()
 
                 if time.time() - start >= timeout:
-                    return
+                    self.shutdown()
         finally:
             # Close down consumer to commit final offsets.
-            self.consumer.close()
+            self._consumer.close()
+            return return_message
