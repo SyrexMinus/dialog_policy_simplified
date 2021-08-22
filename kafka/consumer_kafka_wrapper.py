@@ -8,7 +8,7 @@ from confluent_kafka import KafkaError, KafkaException
 
 class ConsumerKafkaWrapper:
     def __init__(self, conf=CONF_CONSUMER_KAFKA_DEFAULT):
-        self._consumer = Consumer(config=conf)
+        self._consumer = Consumer(conf)
         self._running = False
 
     def start_loop(self, topics, process_message_func):
@@ -35,7 +35,7 @@ class ConsumerKafkaWrapper:
                     elif msg.error():
                         raise KafkaException(msg.error())
                 else:
-                    process_message_func(msg.value().decode('UTF-8'))
+                    process_message_func(msg)
         finally:
             # Close down consumer to commit final offsets.
             self._consumer.close()
@@ -52,6 +52,9 @@ class ConsumerKafkaWrapper:
             self._consumer.subscribe(topics)
 
             while self._running:
+                if time.time() - start >= timeout:
+                    self.shutdown()
+
                 msg = self._consumer.poll(timeout=1)
                 if msg is None:
                     continue
@@ -67,9 +70,8 @@ class ConsumerKafkaWrapper:
                     if return_expression(msg):
                         return_message = msg
                         self.shutdown()
-
-                if time.time() - start >= timeout:
-                    self.shutdown()
+        except:
+            print("Error in _get_message_consume_loop")
         finally:
             # Close down consumer to commit final offsets.
             self._consumer.close()

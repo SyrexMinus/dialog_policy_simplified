@@ -10,8 +10,10 @@ class IsOurIRResponceChecker:
 
     def check(self, message):
         try:
-            decoded_message = json.loads(message)
+            message_string = message.value().decode('UTF-8')
+            decoded_message = json.loads(message_string)
             return decoded_message[MESSAGE_ID_TAG] == self.message_id and \
                    decoded_message[MESSAGE_NAME_TAG] == self.message_name
         finally:
-            return False
+            pass
+        return False
