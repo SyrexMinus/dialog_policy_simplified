@@ -51,7 +51,8 @@ class WebAsyncWrapper:
 
         message_text = "500 Internal Server Error"
         if message_from_topic:
-            message_text = message_from_topic.value().decode('UTF-8')
+            message_dict = json.loads(message_from_topic.value().decode('UTF-8'))
+            message_text = str(message_dict)
 
         text = f"IR decoded this as \"{message_text}\""
 
