@@ -71,8 +71,7 @@ class ConsumerKafkaWrapper:
                         return_message = msg
                         self.shutdown()
         except:
-            print("Error in _get_message_consume_loop")
-        finally:
             # Close down consumer to commit final offsets.
             self._consumer.close()
+        finally:
             return return_message
