@@ -3,7 +3,8 @@ import json
 from kafka.consumer_kafka_wrapper import ConsumerKafkaWrapper
 from kafka.producer_kafka_wrapper import ProducerKafkaWrapper
 from utils.project_constants import TO_IR_KAFKA_TOPIC, MESSAGE_ID_TAG, MESSAGE_NAME_TAG, CLASSIFY_TEXT_MESSAGE_NAME, \
-    CLASSIFICATION_RESULT_MESSAGE_NAME, IR_RESPONSE_KAFKA_TOPIC, PAYLOAD_TAG, PAYLOAD_MESSAGE_TAG
+    CLASSIFICATION_RESULT_MESSAGE_NAME, IR_RESPONSE_KAFKA_TOPIC, PAYLOAD_TAG, PAYLOAD_MESSAGE_TAG, UUID_TAG, \
+    UUID_USERCHANNEL_TAG, UUID_USERID_TAG, PAYLOAD_INTENTS_TAG, INTENT_PROJECTS_TAG
 
 
 class IntentRecognizer:
@@ -23,23 +24,25 @@ class IntentRecognizer:
 
         message_name = decoded_message.get(MESSAGE_NAME_TAG)
         message_text = decoded_message.get(PAYLOAD_TAG, {}).get(PAYLOAD_MESSAGE_TAG)
+        uuid_user_channel = decoded_message.get(UUID_TAG, {}).get(UUID_USERCHANNEL_TAG)
+        uuid_user_id = decoded_message.get(UUID_TAG, {}).get(UUID_USERID_TAG)
 
         if message_name == CLASSIFY_TEXT_MESSAGE_NAME:
-            classify_text_request = json.dumps(
+            classification_result_response = json.dumps(
                 {
                     MESSAGE_ID_TAG: this_message_id,
                     MESSAGE_NAME_TAG: CLASSIFICATION_RESULT_MESSAGE_NAME,
-                    "uuid": {
-                        "userChannel": "FEBRUARY",
-                        "userId": "1"
+                    UUID_TAG: {
+                        UUID_USERCHANNEL_TAG: uuid_user_channel,
+                        UUID_USERID_TAG: uuid_user_id
                     },
                     PAYLOAD_TAG: {
-                        "intents": {
+                        PAYLOAD_INTENTS_TAG: {
                             "weather": {
                                 "score": 1.0,
                                 "interrupt_exclusive_app": False,
                                 "meta": {},
-                                "projects": [
+                                INTENT_PROJECTS_TAG: [
                                     {"name": "weatherApp", "id": "9a662582-140d-4e8a-a3bb-cf786d5cfe1f"}
                                 ]
                             }
@@ -51,4 +54,4 @@ class IntentRecognizer:
                 }
             )
             self.producer.produce(IR_RESPONSE_KAFKA_TOPIC, CLASSIFICATION_RESULT_MESSAGE_NAME,
-                                        classify_text_request)
+                                  classification_result_response)
