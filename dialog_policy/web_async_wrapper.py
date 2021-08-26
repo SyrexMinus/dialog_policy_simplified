@@ -8,7 +8,8 @@ from utils.project_constants import TO_IR_KAFKA_TOPIC, CLASSIFY_TEXT_MESSAGE_NAM
     IR_RESPONSE_KAFKA_TOPIC, CLASSIFICATION_RESULT_MESSAGE_NAME, PAYLOAD_TAG, PAYLOAD_MESSAGE_TAG, UUID_TAG, \
     UUID_USERCHANNEL_TAG, UUID_USERID_TAG, ERROR_500_MESSAGE, PAYLOAD_INTENTS_TAG, INTENT_PROJECTS_TAG, \
     MESSAGE_TO_SKILL_MESSAGE_NAME, TO_SMART_APP_KAFKA_TOPIC, SMART_APP_RESPONSE_KAFKA_TOPIC, \
-    SMART_APP_RESPONSE_MESSAGE_NAME, APP_INFO_TAG, PROJECT_ID_TAG, PROJECT_NAME_TAG, ANSWER_TO_USER_MESSAGE_NAME
+    SMART_APP_RESPONSE_MESSAGE_NAME, APP_INFO_TAG, PROJECT_ID_TAG, PROJECT_NAME_TAG, ANSWER_TO_USER_MESSAGE_NAME, \
+    BLENDER_REQUEST_MESSAGE_NAME, BLENDER_RESPONSE_MESSAGE_NAME, APP_RESPONSES_TAG
 from utils.support_functions import IsOurKafkaResponceChecker
 
 
@@ -42,7 +43,6 @@ class WebAsyncWrapper:
                 }
             }
         )
-
         self.producer.produce(TO_IR_KAFKA_TOPIC, CLASSIFY_TEXT_MESSAGE_NAME, classify_text_request)
 
         is_our_IR_response_checker = IsOurKafkaResponceChecker(message_ids=[this_message_id],
@@ -55,7 +55,6 @@ class WebAsyncWrapper:
             return web.Response(text=ERROR_500_MESSAGE)
 
         IR_response_message_dict = json.loads(message_from_topic.value().decode('UTF-8'))
-
         intents = IR_response_message_dict.get(PAYLOAD_TAG, {}).get(PAYLOAD_INTENTS_TAG, {})
         sent_messages_ids = []
         for intent in intents.items():
@@ -90,9 +89,9 @@ class WebAsyncWrapper:
                 self.producer.produce(TO_SMART_APP_KAFKA_TOPIC, MESSAGE_TO_SKILL_MESSAGE_NAME, app_request)
                 sent_messages_ids.append(this_message_id)
 
-        debug_text = ""
         app_responses = []
-        for response_num in range(len(sent_messages_ids)):
+        messages_number = len(sent_messages_ids)
+        for response_num in range(messages_number):
             is_our_response_checker = IsOurKafkaResponceChecker(message_ids=sent_messages_ids,
                                                                 message_names=[ANSWER_TO_USER_MESSAGE_NAME])
             app_response = self.consumer.get_message(topics=[SMART_APP_RESPONSE_KAFKA_TOPIC],
@@ -102,11 +101,45 @@ class WebAsyncWrapper:
                 app_response_message_dict = json.loads(app_response.value().decode('UTF-8'))
 
                 message_id = app_response_message_dict.get(MESSAGE_ID_TAG)
-                app_responses.append(app_response)
+                app_responses.append(app_response_message_dict)
                 sent_messages_ids.remove(message_id)
-                debug_text += app_response.value().decode('UTF-8')
 
-        return web.Response(text=debug_text)
+        if len(app_responses) != messages_number:
+            return web.Response(text=ERROR_500_MESSAGE)
+
+        self._message_id += 1
+        this_message_id = self._message_id
+        IR_blender_request = json.dumps(
+            {
+                MESSAGE_NAME_TAG: BLENDER_REQUEST_MESSAGE_NAME,
+                MESSAGE_ID_TAG: this_message_id,
+                UUID_TAG: {
+                    UUID_USERCHANNEL_TAG: "OCTOBER",
+                    "sub": "d2d6da62-6bdd-452b-b5dd-a145090075ba",
+                    "userId": "123"
+                },
+                PAYLOAD_TAG: {
+                    APP_RESPONSES_TAG: str(app_responses)
+                }
+            }
+        )
+        self.producer.produce(TO_IR_KAFKA_TOPIC, BLENDER_REQUEST_MESSAGE_NAME, IR_blender_request)
+
+        is_our_IR_response_checker = IsOurKafkaResponceChecker(message_ids=[this_message_id],
+                                                               message_names=[BLENDER_RESPONSE_MESSAGE_NAME])
+        IR_app_response = self.consumer.get_message(topics=[IR_RESPONSE_KAFKA_TOPIC],
+                                                    return_expression=is_our_IR_response_checker.check,
+                                                    timeout=10)
+
+        if IR_app_response is None:
+            return web.Response(text=ERROR_500_MESSAGE)
+
+        decoded_message = json.loads(IR_app_response.value().decode('UTF-8'))
+
+        answer_to_user = decoded_message
+        answer_to_user[MESSAGE_NAME_TAG] = ANSWER_TO_USER_MESSAGE_NAME
+
+        return web.Response(text=str(answer_to_user))
 
     def run_app(self):
         web.run_app(self.app)
