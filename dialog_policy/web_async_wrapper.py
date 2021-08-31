@@ -8,9 +8,9 @@ from utils.project_constants import TO_IR_KAFKA_TOPIC, CLASSIFY_TEXT_MESSAGE_NAM
     IR_RESPONSE_KAFKA_TOPIC, CLASSIFICATION_RESULT_MESSAGE_NAME, PAYLOAD_TAG, PAYLOAD_MESSAGE_TAG, UUID_TAG, \
     UUID_USERCHANNEL_TAG, UUID_USERID_TAG, ERROR_500_MESSAGE, PAYLOAD_INTENTS_TAG, INTENT_PROJECTS_TAG, \
     MESSAGE_TO_SKILL_MESSAGE_NAME, TO_SMART_APP_KAFKA_TOPIC, SMART_APP_RESPONSE_KAFKA_TOPIC, \
-    SMART_APP_RESPONSE_MESSAGE_NAME, APP_INFO_TAG, PROJECT_ID_TAG, PROJECT_NAME_TAG, ANSWER_TO_USER_MESSAGE_NAME, \
+    APP_INFO_TAG, PROJECT_ID_TAG, PROJECT_NAME_TAG, ANSWER_TO_USER_MESSAGE_NAME, \
     BLENDER_REQUEST_MESSAGE_NAME, BLENDER_RESPONSE_MESSAGE_NAME, APP_RESPONSES_TAG
-from utils.support_functions import IsOurKafkaResponceChecker
+from utils.support_functions import IsOurKafkaResponceChecker, kafka_message_to_dict
 
 
 class WebAsyncWrapper:
@@ -28,8 +28,46 @@ class WebAsyncWrapper:
     async def _handle(self, request):
         message = request.match_info.get('message', "Anonymous")
 
+        classified_message = self.classify_text_IR(message)
+
+        if classified_message is None:
+            return web.Response(text=ERROR_500_MESSAGE)
+
+        classified_message_dict = kafka_message_to_dict(classified_message)
+        intents = classified_message_dict.get(PAYLOAD_TAG, {}).get(PAYLOAD_INTENTS_TAG, {})
+        intents_number = len(intents)
+
+        apps_responses = self.apps_responses_on_message_to_skill(intents, message)
+
+        if len(apps_responses) != intents_number:
+            return web.Response(text=ERROR_500_MESSAGE)
+
+        blender_response_IR = self.blender_response_IR(apps_responses)
+
+        if blender_response_IR is None:
+            return web.Response(text=ERROR_500_MESSAGE)
+
+        blender_response_IR_dict = kafka_message_to_dict(blender_response_IR)
+
+        response_dict = blender_response_IR_dict
+        response_dict[MESSAGE_NAME_TAG] = ANSWER_TO_USER_MESSAGE_NAME
+
+        response = str(response_dict)
+
+        return web.Response(text=response)
+
+    def run_app(self):
+        web.run_app(self.app)
+
+    def _register_producer_kafka(self):
+        self.producer = ProducerKafkaWrapper()
+
+    def get_new_message_id(self):
         self._message_id += 1
-        this_message_id = self._message_id
+        return self._message_id
+
+    def classify_text_IR(self, message):
+        this_message_id = self.get_new_message_id()
         classify_text_request = json.dumps(
             {
                 MESSAGE_ID_TAG: this_message_id,
@@ -50,12 +88,9 @@ class WebAsyncWrapper:
         message_from_topic = self.consumer.get_message(topics=[IR_RESPONSE_KAFKA_TOPIC],
                                                        return_expression=is_our_IR_response_checker.check,
                                                        timeout=10)
+        return message_from_topic
 
-        if message_from_topic is None:
-            return web.Response(text=ERROR_500_MESSAGE)
-
-        IR_response_message_dict = json.loads(message_from_topic.value().decode('UTF-8'))
-        intents = IR_response_message_dict.get(PAYLOAD_TAG, {}).get(PAYLOAD_INTENTS_TAG, {})
+    def apps_responses_on_message_to_skill(self, intents, message):
         sent_messages_ids = []
         for intent in intents.items():
             projects = intent[1].get(INTENT_PROJECTS_TAG, [])
@@ -63,8 +98,7 @@ class WebAsyncWrapper:
             for project in projects:
                 project_name = project.get("name")
                 project_id = project.get("id")
-                self._message_id += 1
-                this_message_id = self._message_id
+                this_message_id = self.get_new_message_id()
                 app_request = json.dumps(
                     {
                         MESSAGE_NAME_TAG: MESSAGE_TO_SKILL_MESSAGE_NAME,
@@ -89,7 +123,7 @@ class WebAsyncWrapper:
                 self.producer.produce(TO_SMART_APP_KAFKA_TOPIC, MESSAGE_TO_SKILL_MESSAGE_NAME, app_request)
                 sent_messages_ids.append(this_message_id)
 
-        app_responses = []
+        apps_responses = []
         messages_number = len(sent_messages_ids)
         for response_num in range(messages_number):
             is_our_response_checker = IsOurKafkaResponceChecker(message_ids=sent_messages_ids,
@@ -98,17 +132,16 @@ class WebAsyncWrapper:
                                                      return_expression=is_our_response_checker.check,
                                                      timeout=10)
             if app_response:
-                app_response_message_dict = json.loads(app_response.value().decode('UTF-8'))
+                app_response_message_dict = kafka_message_to_dict(app_response)
 
                 message_id = app_response_message_dict.get(MESSAGE_ID_TAG)
-                app_responses.append(app_response_message_dict)
+                apps_responses.append(app_response_message_dict)
                 sent_messages_ids.remove(message_id)
 
-        if len(app_responses) != messages_number:
-            return web.Response(text=ERROR_500_MESSAGE)
+        return apps_responses
 
-        self._message_id += 1
-        this_message_id = self._message_id
+    def blender_response_IR(self, apps_responses):
+        this_message_id = self.get_new_message_id()
         IR_blender_request = json.dumps(
             {
                 MESSAGE_NAME_TAG: BLENDER_REQUEST_MESSAGE_NAME,
@@ -119,7 +152,7 @@ class WebAsyncWrapper:
                     "userId": "123"
                 },
                 PAYLOAD_TAG: {
-                    APP_RESPONSES_TAG: str(app_responses)
+                    APP_RESPONSES_TAG: str(apps_responses)
                 }
             }
         )
@@ -127,22 +160,8 @@ class WebAsyncWrapper:
 
         is_our_IR_response_checker = IsOurKafkaResponceChecker(message_ids=[this_message_id],
                                                                message_names=[BLENDER_RESPONSE_MESSAGE_NAME])
-        IR_app_response = self.consumer.get_message(topics=[IR_RESPONSE_KAFKA_TOPIC],
-                                                    return_expression=is_our_IR_response_checker.check,
-                                                    timeout=10)
+        IR_blender_response = self.consumer.get_message(topics=[IR_RESPONSE_KAFKA_TOPIC],
+                                                        return_expression=is_our_IR_response_checker.check,
+                                                        timeout=10)
 
-        if IR_app_response is None:
-            return web.Response(text=ERROR_500_MESSAGE)
-
-        decoded_message = json.loads(IR_app_response.value().decode('UTF-8'))
-
-        answer_to_user = decoded_message
-        answer_to_user[MESSAGE_NAME_TAG] = ANSWER_TO_USER_MESSAGE_NAME
-
-        return web.Response(text=str(answer_to_user))
-
-    def run_app(self):
-        web.run_app(self.app)
-
-    def _register_producer_kafka(self):
-        self.producer = ProducerKafkaWrapper()
+        return IR_blender_response

@@ -18,3 +18,7 @@ class IsOurKafkaResponceChecker:
         finally:
             pass
         return False
+
+
+def kafka_message_to_dict(kafka_message):
+    return json.loads(kafka_message.value().decode('UTF-8'))
