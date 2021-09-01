@@ -10,7 +10,7 @@ from utils.project_constants import TO_IR_KAFKA_TOPIC, CLASSIFY_TEXT_MESSAGE_NAM
     MESSAGE_TO_SKILL_MESSAGE_NAME, TO_SMART_APP_KAFKA_TOPIC, SMART_APP_RESPONSE_KAFKA_TOPIC, \
     APP_INFO_TAG, PROJECT_ID_TAG, PROJECT_NAME_TAG, ANSWER_TO_USER_MESSAGE_NAME, \
     BLENDER_REQUEST_MESSAGE_NAME, BLENDER_RESPONSE_MESSAGE_NAME, APP_RESPONSES_TAG
-from utils.support_functions import IsOurKafkaResponceChecker, kafka_message_to_dict
+from utils.support_functions import IsOurKafkaResponceChecker, kafka_message_to_dict, ResponseException
 
 
 class WebAsyncWrapper:
@@ -168,20 +168,3 @@ class WebAsyncWrapper:
             raise ResponseException(BLENDER_RESPONSE_MESSAGE_NAME, IR_RESPONSE_KAFKA_TOPIC)
 
         return IR_blender_response
-
-
-class ResponseException(Exception):
-    """Exception raised for errors in consuming kafka message.
-
-    Attributes:
-        message -- explanation of the error
-    """
-
-    def __init__(self, message_name, topic_name, message="The response did not come"):
-        self.message_name = message_name
-        self.topic_name = topic_name
-        self.message = message
-        super().__init__(self.message)
-
-    def __str__(self):
-        return f'message {self.message_name}, topic {self.topic_name} -> {self.message}'

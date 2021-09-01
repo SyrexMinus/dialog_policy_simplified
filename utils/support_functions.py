@@ -22,3 +22,20 @@ class IsOurKafkaResponceChecker:
 
 def kafka_message_to_dict(kafka_message):
     return json.loads(kafka_message.value().decode('UTF-8'))
+
+
+class ResponseException(Exception):
+    """Exception raised for errors in consuming kafka message.
+
+    Attributes:
+        message -- explanation of the error
+    """
+
+    def __init__(self, message_name, topic_name, message="The response did not come"):
+        self.message_name = message_name
+        self.topic_name = topic_name
+        self.message = message
+        super().__init__(self.message)
+
+    def __str__(self):
+        return f'message {self.message_name}, topic {self.topic_name} -> {self.message}'
