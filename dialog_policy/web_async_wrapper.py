@@ -28,33 +28,27 @@ class WebAsyncWrapper:
     async def _handle(self, request):
         message = request.match_info.get('message', "Anonymous")
 
-        classified_message = self.classify_text_IR(message)
+        try:
+            classified_message = self.classify_text_IR(message)
 
-        if classified_message is None:
+            classified_message_dict = kafka_message_to_dict(classified_message)
+            intents = classified_message_dict.get(PAYLOAD_TAG, {}).get(PAYLOAD_INTENTS_TAG, {})
+
+            apps_responses = self.apps_responses_on_message_to_skill(intents, message)
+
+            blender_response_IR = self.blender_response_IR(apps_responses)
+
+            blender_response_IR_dict = kafka_message_to_dict(blender_response_IR)
+
+            response_dict = blender_response_IR_dict
+            response_dict[MESSAGE_NAME_TAG] = ANSWER_TO_USER_MESSAGE_NAME
+            response = str(response_dict)
+
+            return web.Response(text=response)
+
+        except ResponseException:
+            print(ResponseException)
             return web.Response(text=ERROR_500_MESSAGE)
-
-        classified_message_dict = kafka_message_to_dict(classified_message)
-        intents = classified_message_dict.get(PAYLOAD_TAG, {}).get(PAYLOAD_INTENTS_TAG, {})
-        intents_number = len(intents)
-
-        apps_responses = self.apps_responses_on_message_to_skill(intents, message)
-
-        if len(apps_responses) != intents_number:
-            return web.Response(text=ERROR_500_MESSAGE)
-
-        blender_response_IR = self.blender_response_IR(apps_responses)
-
-        if blender_response_IR is None:
-            return web.Response(text=ERROR_500_MESSAGE)
-
-        blender_response_IR_dict = kafka_message_to_dict(blender_response_IR)
-
-        response_dict = blender_response_IR_dict
-        response_dict[MESSAGE_NAME_TAG] = ANSWER_TO_USER_MESSAGE_NAME
-
-        response = str(response_dict)
-
-        return web.Response(text=response)
 
     def run_app(self):
         web.run_app(self.app)
@@ -88,6 +82,10 @@ class WebAsyncWrapper:
         message_from_topic = self.consumer.get_message(topics=[IR_RESPONSE_KAFKA_TOPIC],
                                                        return_expression=is_our_IR_response_checker.check,
                                                        timeout=10)
+
+        if message_from_topic is None:
+            raise ResponseException(CLASSIFICATION_RESULT_MESSAGE_NAME, IR_RESPONSE_KAFKA_TOPIC)
+
         return message_from_topic
 
     def apps_responses_on_message_to_skill(self, intents, message):
@@ -131,12 +129,14 @@ class WebAsyncWrapper:
             app_response = self.consumer.get_message(topics=[SMART_APP_RESPONSE_KAFKA_TOPIC],
                                                      return_expression=is_our_response_checker.check,
                                                      timeout=10)
-            if app_response:
-                app_response_message_dict = kafka_message_to_dict(app_response)
+            if app_response is None:
+                raise ResponseException(ANSWER_TO_USER_MESSAGE_NAME, SMART_APP_RESPONSE_KAFKA_TOPIC)
 
-                message_id = app_response_message_dict.get(MESSAGE_ID_TAG)
-                apps_responses.append(app_response_message_dict)
-                sent_messages_ids.remove(message_id)
+            app_response_message_dict = kafka_message_to_dict(app_response)
+
+            message_id = app_response_message_dict.get(MESSAGE_ID_TAG)
+            apps_responses.append(app_response_message_dict)
+            sent_messages_ids.remove(message_id)
 
         return apps_responses
 
@@ -164,4 +164,24 @@ class WebAsyncWrapper:
                                                         return_expression=is_our_IR_response_checker.check,
                                                         timeout=10)
 
+        if IR_blender_response is None:
+            raise ResponseException(BLENDER_RESPONSE_MESSAGE_NAME, IR_RESPONSE_KAFKA_TOPIC)
+
         return IR_blender_response
+
+
+class ResponseException(Exception):
+    """Exception raised for errors in consuming kafka message.
+
+    Attributes:
+        message -- explanation of the error
+    """
+
+    def __init__(self, message_name, topic_name, message="The response did not come"):
+        self.message_name = message_name
+        self.topic_name = topic_name
+        self.message = message
+        super().__init__(self.message)
+
+    def __str__(self):
+        return f'message {self.message_name}, topic {self.topic_name} -> {self.message}'
